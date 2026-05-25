@@ -23,12 +23,12 @@ HttpResponse helloHandler() {
 }
 int main() {
     try {
-        TcpServer server(8080,router);
-
-        server.start();
 		Router router;
 		router.addRoute("/",homeHandler);
 		router.addRoute("/hello",helloHandler);
+		
+		TcpServer server(8080,router);
+		server.start();
 
     }
     catch (const std::exception& e) {

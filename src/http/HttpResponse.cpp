@@ -2,6 +2,23 @@
 
 #include "../../include/http/HttpResponse.hpp"
 
+
+
+
+std::string getStatusText(int status_code) {
+	switch (status_code) {
+		case 200:
+			return "OK";
+		case 404:
+			return "Not Found";
+		case 500:
+			return "Internal Server Error";
+		default:
+			return "Unknown";
+
+	}
+}
+
 HttpResponse::HttpResponse()
     : status_code(200),
       content_type("text/plain") {}
@@ -11,7 +28,9 @@ std::string HttpResponse::toString() const {
 
     response << "HTTP/1.1 "
              << status_code
-             << " OK\r\n";
+             << " "
+			 << getStatusText(status_code)
+			 << "\r\n";
 
     response << "Content-Type: "
              << content_type

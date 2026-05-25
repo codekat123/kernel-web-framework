@@ -4,11 +4,12 @@ project(CppWebFramework)
 
 set(CMAKE_CXX_STANDARD 17)
 
-
 add_executable(
     server
     src/main.cpp
     src/server/TcpServer.cpp
     src/http/HttpRequest.cpp
-	src/http/HttpResponse.cpp
+    src/http/HttpResponse.cpp
+    src/http/HttpParser.cpp
+    src/router/Router.cpp
 )

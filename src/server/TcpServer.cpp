@@ -10,7 +10,8 @@
 #include "../../include/server/TcpServer.hpp"
 #include "../../include/http/HttpRequest.hpp"
 #include "../../include/http/HttpResponse.hpp"
-#include "../router/Router.cpp"
+#include "../../include/router/Router.hpp"
+#include "../../include/http/HttpParser.hpp"
 
 TcpServer::TcpServer(
 		int port,
@@ -52,20 +53,16 @@ void TcpServer::handleClient(int client_socket) {
         0
     );
 
+	HttpRequest request;
+
     if (bytes_received > 0) {
         std::cout << "==== Incoming Request ====\n";
         std::cout << buffer << "\n";
-		HttpRequest request;
-		std::istringstream request_straem(buffer);
 
-		request_straem
-			>> request.method
-			>> request.path
-			>> request.version;
+		request = HttpParser::parse(buffer);
     }
 	
-	HttpResponse response;
-	response.body = "Hello, world";
+	HttpResponse response = router.route(request.path);
 	std::string response_text = response.toString();
 	
     send(
