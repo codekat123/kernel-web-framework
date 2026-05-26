@@ -12,4 +12,7 @@ add_executable(
     src/http/HttpResponse.cpp
     src/http/HttpParser.cpp
     src/router/Router.cpp
+    src/middleware/MiddlewarePipeline.cpp
+    src/middleware/Logger.cpp
+    src/middleware/RequestTimer.cpp
 )

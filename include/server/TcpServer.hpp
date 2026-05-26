@@ -1,22 +1,20 @@
 #pragma once
 
 #include "../router/Router.hpp"
-
+#include "../middleware/MiddlewarePipeline.hpp" 
 
 class TcpServer {
 private:
     int server_fd;
     int port;
-	Router router;
+    Router router;
+    MiddlewarePipeline pipeline;
 
     void setupSocket();
     void handleClient(int client_socket);
 
 public:
-	TcpServer(
-			int port,
-			const Router& router
-			);
-
+    TcpServer(int port, const Router& router);
+    void use(Middleware mw);  
     void start();
 };

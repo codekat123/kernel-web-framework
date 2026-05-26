@@ -1,7 +1,6 @@
 #include <iostream>
 #include <cstring>
 #include <stdexcept>
-
 #include <unistd.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -13,13 +12,14 @@
 #include "../../include/router/Router.hpp"
 #include "../../include/http/HttpParser.hpp"
 
-TcpServer::TcpServer(
-		int port,
-		const Router& router
-		)
+TcpServer::TcpServer(int port, const Router& router)
     : server_fd(-1),
-	port(port),
-	router(router) {}
+      port(port),
+      router(router) {}
+
+void TcpServer::use(Middleware mw) {
+    pipeline.use(mw);
+}
 
 void TcpServer::setupSocket() {
     server_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -29,7 +29,6 @@ void TcpServer::setupSocket() {
     }
 
     sockaddr_in address{};
-
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = INADDR_ANY;
     address.sin_port = htons(port);
@@ -53,18 +52,20 @@ void TcpServer::handleClient(int client_socket) {
         0
     );
 
-	HttpRequest request;
+    HttpRequest request;
 
     if (bytes_received > 0) {
         std::cout << "==== Incoming Request ====\n";
         std::cout << buffer << "\n";
-
-		request = HttpParser::parse(buffer);
+        request = HttpParser::parse(buffer);
     }
-	
-	HttpResponse response = router.route(request.path);
-	std::string response_text = response.toString();
-	
+
+    HttpResponse response;
+
+    pipeline.execute(request, response);
+
+    std::string response_text = response.toString();
+
     send(
         client_socket,
         response_text.c_str(),
@@ -76,6 +77,14 @@ void TcpServer::handleClient(int client_socket) {
 }
 
 void TcpServer::start() {
+    pipeline.use([this](
+        HttpRequest& req,
+        HttpResponse& res,
+        std::function<void()> next
+    ) {
+        res = this->router.route(req.path);
+    });
+
     setupSocket();
 
     std::cout << "Server listening on port "
