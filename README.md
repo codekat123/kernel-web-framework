@@ -13,44 +13,48 @@ Every layer is implemented manually:
 - Raw TCP server using POSIX sockets
 - HTTP/1.1 request parser
 - Request/response abstraction
-- Router with parameterized routes
-- Composable middleware pipeline
-- Static file serving and templating
-- Thread pool for concurrent connections
-- SQLite database integration with connection pooling
-- JWT-based authentication
-- epoll-based async event loop
+- Router with exact route matching
+- Composable middleware pipeline with `next()` pattern
+- Static file serving and templating _(planned)_
+- Thread pool for concurrent connections _(planned)_
+- SQLite database integration with connection pooling _(planned)_
+- JWT-based authentication _(planned)_
+- epoll-based async event loop _(planned)_
 
 ---
 
 ## Roadmap
 
-### v0.1 — Foundation
-| Phase | Description |
-|---|---|
-| Phase 0 | Toolchain setup, TCP echo server, POSIX socket API |
-| Phase 1 | HTTP/1.1 request parser |
-| Phase 2 | HttpRequest / HttpResponse abstractions |
-| Phase 3 | Router with exact and parameterized route matching |
+### v0.1 — Foundation ✅ Complete
 
-### v0.2 — Framework
-| Phase | Description |
-|---|---|
-| Phase 4 | Middleware pipeline with `next()` pattern |
-| Phase 5 | Static file serving, MIME types, template engine |
-| Phase 6 | Thread pool, mutex, graceful shutdown |
+| Phase   | Description                                        | Status  |
+| ------- | -------------------------------------------------- | ------- |
+| Phase 0 | Toolchain setup, TCP echo server, POSIX socket API | ✅ Done |
+| Phase 1 | HTTP/1.1 request parser                            | ✅ Done |
+| Phase 2 | HttpRequest / HttpResponse abstractions            | ✅ Done |
+| Phase 3 | Router with exact route matching                   | ✅ Done |
+
+### v0.2 — Framework 🔄 In Progress
+
+| Phase   | Description                                      | Status     |
+| ------- | ------------------------------------------------ | ---------- |
+| Phase 4 | Middleware pipeline with `next()` pattern        | ✅ Done    |
+| Phase 5 | Static file serving, MIME types, template engine | 🔲 Planned |
+| Phase 6 | Thread pool, mutex, graceful shutdown            | 🔲 Planned |
 
 ### v0.3 — Data & Auth
-| Phase | Description |
-|---|---|
-| Phase 7 | SQLite integration, parameterized queries, connection pool |
-| Phase 8 | Password hashing, JWT generation and verification |
+
+| Phase   | Description                                                | Status     |
+| ------- | ---------------------------------------------------------- | ---------- |
+| Phase 7 | SQLite integration, parameterized queries, connection pool | 🔲 Planned |
+| Phase 8 | Password hashing, JWT generation and verification          | 🔲 Planned |
 
 ### v0.4 — Scale
-| Phase | Description |
-|---|---|
-| Phase 9 | epoll-based async event loop, non-blocking sockets |
-| Phase 10 | HTTP keep-alive, rate limiting, benchmarking |
+
+| Phase    | Description                                        | Status     |
+| -------- | -------------------------------------------------- | ---------- |
+| Phase 9  | epoll-based async event loop, non-blocking sockets | 🔲 Planned |
+| Phase 10 | HTTP keep-alive, rate limiting, benchmarking       | 🔲 Planned |
 
 ---
 
@@ -78,38 +82,67 @@ Every layer is implemented manually:
 
 ---
 
+## What's Built So Far
+
+### TCP Server
+
+Raw POSIX socket server that accepts connections, reads incoming bytes, and sends responses back. Single-threaded for now — one request at a time.
+
+### HTTP Parser
+
+Parses raw HTTP/1.1 request bytes into a structured `HttpRequest` object with method, path, version, and headers.
+
+### Router
+
+Maps URL paths to handler functions. Returns a 404 response automatically for unregistered routes.
+
+```cpp
+router.addRoute("/", homeHandler);
+router.addRoute("/hello", helloHandler);
+```
+
+### Middleware Pipeline
+
+Composable middleware chain where each middleware receives the request, response, and a `next()` function to pass control forward.
+
+```cpp
+server.use([](HttpRequest& req, HttpResponse& res, std::function<void()> next) {
+    std::cout << "Request: " << req.path << "\n";
+    next(); // pass to next middleware
+});
+```
+
+The router itself sits at the end of the pipeline as the final middleware.
+
+---
+
 ## Folder Structure
 
 ```
 kernel-web-framework/
 ├── CMakeLists.txt
 ├── README.md
+├── include/
+│   ├── server/
+│   │   └── TcpServer.hpp
+│   ├── http/
+│   │   ├── HttpRequest.hpp
+│   │   ├── HttpResponse.hpp
+│   │   └── HttpParser.hpp
+│   ├── router/
+│   │   └── Router.hpp
+│   └── middleware/
+│       └── Middleware.hpp
 ├── src/
 │   ├── main.cpp
 │   ├── server/
-│   │   ├── Server.hpp
-│   │   └── Server.cpp
+│   │   └── TcpServer.cpp
 │   ├── http/
-│   │   ├── HttpRequest.hpp
 │   │   ├── HttpRequest.cpp
-│   │   ├── HttpResponse.hpp
 │   │   ├── HttpResponse.cpp
 │   │   └── HttpParser.cpp
-│   ├── router/
-│   │   ├── Router.hpp
-│   │   └── Router.cpp
-│   ├── middleware/
-│   │   └── Middleware.hpp
-│   ├── db/
-│   │   └── Database.hpp
-│   ├── auth/
-│   │   └── Auth.hpp
-│   └── utils/
-│       └── StringUtils.hpp
-├── tests/
-│   └── test_http_parser.cpp
-├── public/
-└── templates/
+│   └── router/
+│       └── Router.cpp
 ```
 
 ---
@@ -117,19 +150,24 @@ kernel-web-framework/
 ## Build
 
 **Requirements**
-- Linux (Ubuntu 22.04+)
+
+- Linux (any distro) — or macOS
 - GCC 11+ or Clang 14+
 - CMake 3.16+
-- GDB, Valgrind
-- libsqlite3-dev, libssl-dev
 
-**Install dependencies**
-```bash
-sudo apt update
-sudo apt install -y build-essential cmake gdb valgrind libsqlite3-dev libssl-dev
-```
+> **Not on Linux?** Here are your options:
+>
+> - **Docker (easiest)** — works on any OS, no setup needed:
+>   ```bash
+>   docker run -it --rm -v $(pwd):/app -w /app gcc:latest bash
+>   ```
+>   Then build normally from inside the container
+> - **Windows** — use [WSL](https://learn.microsoft.com/en-us/windows/wsl/install) (Windows Subsystem for Linux), it gives you a full Linux environment inside Windows
+> - **macOS** — works natively, just make sure you have Clang installed via Xcode Command Line Tools: `xcode-select --install`
+> - **Any OS** — spin up a Linux VM with [VirtualBox](https://www.virtualbox.org/) or use a cloud VM (AWS, DigitalOcean, etc.)
 
 **Build**
+
 ```bash
 mkdir build && cd build
 cmake .. -DCMAKE_BUILD_TYPE=Debug
@@ -137,22 +175,23 @@ make -j$(nproc)
 ```
 
 **Run**
+
 ```bash
 ./server
-# Listening on http://localhost:8080
+# Server listening on port 8080...
 ```
 
 ---
 
 ## Version History
 
-| Version | Status | Description |
-|---|---|---|
-| v0.1 | 🔲 In progress | TCP server + HTTP parser + router |
-| v0.2 | 🔲 Planned | Middleware + threading + templating |
-| v0.3 | 🔲 Planned | Database + authentication |
-| v0.4 | 🔲 Planned | epoll event loop + performance |
-| v0.5 | 🔲 Future | TLS + HTTP/2 |
+| Version | Status         | Description                                            |
+| ------- | -------------- | ------------------------------------------------------ |
+| v0.1    | ✅ Complete    | TCP server + HTTP parser + router                      |
+| v0.2    | 🔄 In progress | Middleware pipeline done — threading & templating next |
+| v0.3    | 🔲 Planned     | Database + authentication                              |
+| v0.4    | 🔲 Planned     | epoll event loop + performance                         |
+| v0.5    | 🔲 Future      | TLS + HTTP/2                                           |
 
 ---
 

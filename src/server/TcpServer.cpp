@@ -5,6 +5,7 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <sstream>
+#include <thread>
 
 #include "../../include/server/TcpServer.hpp"
 #include "../../include/http/HttpRequest.hpp"
@@ -106,6 +107,10 @@ void TcpServer::start() {
             continue;
         }
 
-        handleClient(client_socket);
+        std::thread t([this, client_socket]() {
+            handleClient(client_socket);
+        });
+
+        t.detach();
     }
 }
