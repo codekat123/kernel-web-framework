@@ -1,23 +1,27 @@
 #include <iostream>
-#include <cstring>
 #include <stdexcept>
 #include <unistd.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
-#include <sstream>
-#include <thread>
 
 #include "../../include/server/TcpServer.hpp"
 #include "../../include/http/HttpRequest.hpp"
 #include "../../include/http/HttpResponse.hpp"
 #include "../../include/router/Router.hpp"
 #include "../../include/http/HttpParser.hpp"
+#include "../../include/threading/ThreadPool.hpp"
 
-TcpServer::TcpServer(int port, const Router& router)
+
+TcpServer::TcpServer(
+    int port,
+    const Router& router
+)
     : server_fd(-1),
       port(port),
-      router(router) {}
-
+      router(router),
+      thread_pool(4)
+{
+}
 void TcpServer::use(Middleware mw) {
     pipeline.use(mw);
 }
@@ -107,10 +111,9 @@ void TcpServer::start() {
             continue;
         }
 
-        std::thread t([this, client_socket]() {
-            handleClient(client_socket);
-        });
+        thread_pool.enqueue([this, client_socket]() {
+                handleClient(client_socket);
+                });
 
-        t.detach();
     }
 }

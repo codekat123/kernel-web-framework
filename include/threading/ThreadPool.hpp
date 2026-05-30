@@ -17,6 +17,10 @@ private:
 
     std::condition_variable condition;
 
+    bool stop = false;
+
 public:
     ThreadPool(size_t thread_count);
+    ~ThreadPool();
+    void enqueue(std::function<void()> task);
 };

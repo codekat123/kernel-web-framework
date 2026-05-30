@@ -15,4 +15,5 @@ add_executable(
     src/middleware/MiddlewarePipeline.cpp
     src/middleware/Logger.cpp
     src/middleware/RequestTimer.cpp
+    src/threading/ThreadPool.cpp
 )

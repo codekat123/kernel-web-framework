@@ -2,6 +2,7 @@
 
 #include "../router/Router.hpp"
 #include "../middleware/MiddlewarePipeline.hpp" 
+#include "../threading/ThreadPool.hpp"
 
 class TcpServer {
 private:
@@ -9,6 +10,7 @@ private:
     int port;
     Router router;
     MiddlewarePipeline pipeline;
+    ThreadPool thread_pool;
 
     void setupSocket();
     void handleClient(int client_socket);
