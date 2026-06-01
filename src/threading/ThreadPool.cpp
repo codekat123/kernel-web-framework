@@ -17,7 +17,7 @@ ThreadPool::ThreadPool(size_t thread_count) {
                     return;
                     }
 
-                    task = tasks.front();
+                    task = std::move(tasks.front());
                     tasks.pop();
                 }
                 task();

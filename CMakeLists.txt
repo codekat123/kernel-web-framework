@@ -16,4 +16,5 @@ add_executable(
     src/middleware/Logger.cpp
     src/middleware/RequestTimer.cpp
     src/threading/ThreadPool.cpp
+    src/static/StaticFileHandler.cpp
 )
