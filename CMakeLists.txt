@@ -4,17 +4,11 @@ project(CppWebFramework)
 
 set(CMAKE_CXX_STANDARD 17)
 
-add_executable(
+file(GLOB_RECURSE SOURCES src/*.cpp)
+
+add_executable(server ${SOURCES})
+
+target_link_libraries(
     server
-    src/main.cpp
-    src/server/TcpServer.cpp
-    src/http/HttpRequest.cpp
-    src/http/HttpResponse.cpp
-    src/http/HttpParser.cpp
-    src/router/Router.cpp
-    src/middleware/MiddlewarePipeline.cpp
-    src/middleware/Logger.cpp
-    src/middleware/RequestTimer.cpp
-    src/threading/ThreadPool.cpp
-    src/static/StaticFileHandler.cpp
+    sqlite3
 )

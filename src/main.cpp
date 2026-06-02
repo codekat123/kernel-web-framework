@@ -46,8 +46,6 @@ int main() {
             }
 
             std::string file_path = "public" + req.path;
-            std::cout << "[DEBUG] checking: " << file_path << "\n";
-            std::cout << "[DEBUG] exists: " << std::filesystem::exists(file_path) << "\n";
             if (std::filesystem::exists(file_path) &&
                 std::filesystem::is_regular_file(file_path)) {
                 res = staticFiles.serve(req.path);
