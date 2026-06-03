@@ -43,7 +43,7 @@ Every layer is implemented manually:
 | Phase 5 | Static file serving, MIME types           | ✅ Done |
 | Phase 6 | Thread pool, mutex, graceful shutdown     | ✅ Done |
 
-### v0.3 — Data & Auth
+### v0.3 — Data & Auth in progress
 
 | Phase   | Description                                                | Status     |
 | ------- | ---------------------------------------------------------- | ---------- |

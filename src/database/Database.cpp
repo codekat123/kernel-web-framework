@@ -57,3 +57,25 @@ bool Database::execute(
 
     return true;
 }
+
+Statement Database::prepare(const std::string& sql)
+{
+    sqlite3_stmt* stmt = nullptr;
+
+    int result = sqlite3_prepare_v2(
+        connection_,
+        sql.c_str(),
+        -1,
+        &stmt,
+        nullptr
+    );
+
+    if (result != SQLITE_OK)
+    {
+        throw std::runtime_error(
+            sqlite3_errmsg(connection_)
+        );
+    }
+
+    return Statement(stmt);
+}
