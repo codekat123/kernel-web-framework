@@ -18,7 +18,7 @@ Every layer is implemented manually:
 - Thread pool for concurrent connections
 - Graceful shutdown via POSIX signal handling
 - Static file serving with MIME type detection and path traversal protection
-- SQLite database integration with connection pooling _(planned)_
+- SQLite database integration with RAII wrappers, transactions, and connection pooling
 - JWT-based authentication _(planned)_
 - epoll-based async event loop _(planned)_
 
@@ -43,11 +43,11 @@ Every layer is implemented manually:
 | Phase 5 | Static file serving, MIME types           | ✅ Done |
 | Phase 6 | Thread pool, mutex, graceful shutdown     | ✅ Done |
 
-### v0.3 — Data & Auth in progress
+### v0.3 — Data & Auth 🔄 In Progress
 
 | Phase   | Description                                                | Status     |
 | ------- | ---------------------------------------------------------- | ---------- |
-| Phase 7 | SQLite integration, parameterized queries, connection pool | 🔲 Planned |
+| Phase 7 | SQLite integration, parameterized queries, connection pool | ✅ Done    |
 | Phase 8 | Password hashing, JWT generation and verification          | 🔲 Planned |
 
 ### v0.4 — Scale
@@ -152,6 +152,44 @@ Supported MIME types: `text/html`, `text/css`, `application/javascript`, `applic
 
 Static file serving is implemented as middleware, so it runs before the router. If no matching file is found, the request falls through to the router normally.
 
+### Database Layer
+
+Full SQLite integration built from scratch using RAII ownership at every level.
+
+**`Database`** — owns a `sqlite3*` connection. Opens on construction, closes on destruction. Non-copyable. Exposes `execute()` for statements with no results and `prepare()` for queries that return rows.
+
+**`Statement`** — owns a `sqlite3_stmt*`. RAII wrapper around `sqlite3_finalize()`. Non-copyable, movable. Supports typed `bind()` overloads for `int` and `std::string`, `step()` to advance the cursor, `currentRow()` to read one row, and `fetchAll()` to collect all rows into a `ResultSet`.
+
+```cpp
+using Row = std::unordered_map<std::string, std::string>;
+using ResultSet = std::vector<Row>;
+```
+
+**`Transaction`** — holds a `Database&` and executes `BEGIN TRANSACTION` on construction. `commit()` commits, `rollback()` rolls back. The destructor automatically rolls back if neither was called — so exceptions never leave the database in a partial state.
+
+```cpp
+Transaction tx(db);
+db.execute("INSERT INTO users (name) VALUES ('Ahmed');");
+tx.commit();
+// if an exception fires before commit(), destructor rolls back automatically
+```
+
+**`ConnectionPool`** — creates N `Database` connections at startup and manages concurrent access. `acquire()` blocks the calling thread until a connection is available, then returns a `ConnectionGuard`. `release()` returns the connection and wakes one waiting thread via `condition_variable`.
+
+**`ConnectionGuard`** — RAII wrapper returned by `acquire()`. Holds a borrowed `Database*` and a reference to the pool. Calls `pool.release()` automatically in its destructor — the caller never manages this manually.
+
+```cpp
+ConnectionPool pool("app.db", 4);
+
+{
+    ConnectionGuard guard = pool.acquire();
+    Database& db = guard.get();
+    db.execute("INSERT INTO logs (msg) VALUES ('hit');");
+} // release() called here automatically
+```
+
+The pool is safe for concurrent use — `acquire()` and `release()` are both protected by a `mutex`, and threads that find no available connection sleep on a `condition_variable` rather than busy-waiting.
+
 ---
 
 ## Folder Structure
@@ -174,8 +212,14 @@ kernel-web-framework/
 │   │   └── MiddlewarePipeline.hpp
 │   ├── static/
 │   │   └── StaticFileHandler.hpp
-│   └── threading/
-│       └── ThreadPool.hpp
+│   ├── threading/
+│   │   └── ThreadPool.hpp
+│   └── database/
+│       ├── Database.hpp
+│       ├── Statement.hpp
+│       ├── Transaction.hpp
+│       ├── ConnectionPool.hpp
+│       └── ConnectionGuard.hpp
 ├── src/
 │   ├── main.cpp
 │   ├── server/
@@ -190,8 +234,14 @@ kernel-web-framework/
 │   │   └── MiddlewarePipeline.cpp
 │   ├── static/
 │   │   └── StaticFileHandler.cpp
-│   └── threading/
-│       └── ThreadPool.cpp
+│   ├── threading/
+│   │   └── ThreadPool.cpp
+│   └── database/
+│       ├── Database.cpp
+│       ├── Statement.cpp
+│       ├── Transaction.cpp
+│       ├── ConnectionPool.cpp
+│       └── ConnectionGuard.cpp
 ```
 
 ---
@@ -203,6 +253,17 @@ kernel-web-framework/
 - Linux (any distro) — or macOS
 - GCC 11+ or Clang 14+
 - CMake 3.16+
+- libsqlite3-dev
+
+**Install dependencies**
+
+```bash
+# Debian / Ubuntu
+sudo apt install -y build-essential cmake libsqlite3-dev
+
+# Arch Linux
+sudo pacman -S base-devel cmake sqlite
+```
 
 > **Not on Linux?** Here are your options:
 >
@@ -259,13 +320,13 @@ wait
 
 ## Version History
 
-| Version | Status      | Description                                                 |
-| ------- | ----------- | ----------------------------------------------------------- |
-| v0.1    | ✅ Complete | TCP server + HTTP parser + router                           |
-| v0.2    | ✅ Complete | Middleware + thread pool + graceful shutdown + static files |
-| v0.3    | 🔲 Planned  | Database + authentication                                   |
-| v0.4    | 🔲 Planned  | epoll event loop + performance                              |
-| v0.5    | 🔲 Future   | TLS + HTTP/2                                                |
+| Version | Status         | Description                                                 |
+| ------- | -------------- | ----------------------------------------------------------- |
+| v0.1    | ✅ Complete    | TCP server + HTTP parser + router                           |
+| v0.2    | ✅ Complete    | Middleware + thread pool + graceful shutdown + static files |
+| v0.3    | 🔄 In progress | Database layer + connection pool                            |
+| v0.4    | 🔲 Planned     | epoll event loop + performance                              |
+| v0.5    | 🔲 Future      | TLS + HTTP/2                                                |
 
 ---
 

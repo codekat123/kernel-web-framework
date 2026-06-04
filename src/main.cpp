@@ -9,6 +9,8 @@
 #include "../include/middleware/Logger.hpp"
 #include "../include/middleware/RequestTimer.hpp"
 #include "../include/static/StaticFileHandler.hpp"
+#include "../include/database/ConnectionPool.hpp"
+
 
 HttpResponse homeHandler() {
     HttpResponse response;
@@ -24,17 +26,36 @@ HttpResponse helloHandler() {
 
 int main() {
     try {
+        ConnectionPool pool("test.db", 3);
+        ConnectionGuard guard = pool.acquire();
+        Database& db = guard.get();
+
+        db.execute(
+            "CREATE TABLE IF NOT EXISTS users "
+            "(id INTEGER PRIMARY KEY, name TEXT);"
+        );
+        db.execute(
+            "INSERT INTO users (name) VALUES ('Ahmed');"
+        );
+
+        auto stmt = db.prepare("SELECT * FROM users;");
+        auto rows = stmt.fetchAll();
+
+        for (const auto& row : rows) {
+            std::cout << "id: " << row.at("id")
+                      << " name: " << row.at("name")
+                      << "\n";
+        }
+
         Router router;
         router.addRoute("/", homeHandler);
         router.addRoute("/hello", helloHandler);
 
         TcpServer server(8080, router);
-
         StaticFileHandler staticFiles("public");
 
         server.use(Logger::handle);
         server.use(RequestTimer::handle);
-
         server.use([&staticFiles](
             HttpRequest& req,
             HttpResponse& res,
@@ -44,7 +65,6 @@ int main() {
                 next();
                 return;
             }
-
             std::string file_path = "public" + req.path;
             if (std::filesystem::exists(file_path) &&
                 std::filesystem::is_regular_file(file_path)) {
