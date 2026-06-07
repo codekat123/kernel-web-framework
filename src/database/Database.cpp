@@ -2,7 +2,7 @@
 
 #include <sqlite3.h>
 #include <stdexcept>
-
+#include <iostream>
 Database::Database(
     const std::string& path
 )
@@ -51,6 +51,7 @@ bool Database::execute(
 
     if (rc != SQLITE_OK)
     {
+        std::cerr << "SQL error: " << (error ? error : "unknown") << "\n";
         sqlite3_free(error);
         return false;
     }

@@ -19,5 +19,5 @@ public:
 
 private:
     Database& db_;
-    bool committed_;
+    bool finalized_;
 };

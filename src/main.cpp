@@ -27,26 +27,27 @@ HttpResponse helloHandler() {
 int main() {
     try {
         ConnectionPool pool("test.db", 3);
-        ConnectionGuard guard = pool.acquire();
-        Database& db = guard.get();
+        {    
+            ConnectionGuard guard = pool.acquire();
+            Database& db = guard.get();
 
-        db.execute(
-            "CREATE TABLE IF NOT EXISTS users "
-            "(id INTEGER PRIMARY KEY, name TEXT);"
-        );
-        db.execute(
-            "INSERT INTO users (name) VALUES ('Ahmed');"
-        );
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS users "
+                "(id INTEGER PRIMARY KEY, name TEXT);"
+            );
+            db.execute(
+                "INSERT INTO users (name) VALUES ('Ahmed');"
+            );
 
-        auto stmt = db.prepare("SELECT * FROM users;");
-        auto rows = stmt.fetchAll();
+            auto stmt = db.prepare("SELECT * FROM users;");
+            auto rows = stmt.fetchAll();
 
-        for (const auto& row : rows) {
-            std::cout << "id: " << row.at("id")
-                      << " name: " << row.at("name")
-                      << "\n";
-        }
-
+            for (const auto& row : rows) {
+                std::cout << "id: " << row.at("id")
+                          << " name: " << row.at("name")
+                          << "\n";
+            }
+        } // destroying the guard here, whoever read this object is now out of scope  
         Router router;
         router.addRoute("/", homeHandler);
         router.addRoute("/hello", helloHandler);

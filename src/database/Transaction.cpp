@@ -5,7 +5,7 @@ Transaction::Transaction(
     Database& db
 )
     : db_(db),
-      committed_(false)
+      finalized_(false)
 {
     db_.execute(
             "BEGIN TRANSACTION;"
@@ -18,7 +18,7 @@ void Transaction::commit()
         "COMMIT;"
     );
 
-    committed_ = true;
+    finalized_ = true;
 }
 
 
@@ -28,12 +28,12 @@ void Transaction::rollback()
         "ROLLBACK;"
     );
 
-    committed_ = true;
+    finalized_ = true;
 }
 
 Transaction::~Transaction()
 {
-    if (!committed_)
+    if (!finalized_)
 
     {
         rollback();

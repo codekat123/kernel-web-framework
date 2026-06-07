@@ -51,6 +51,9 @@ void TcpServer::setupSocket() {
     if (server_fd < 0) {
         throw std::runtime_error("Failed to create socket");
     }
+    
+    int opt = 1;
+    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
     sockaddr_in address{};
     address.sin_family = AF_INET;
@@ -153,5 +156,4 @@ void TcpServer::start() {
     }
 
     std::cout << "Server shutting down...\n";
-    close(server_fd);
 }
