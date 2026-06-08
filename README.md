@@ -19,7 +19,7 @@ Every layer is implemented manually:
 - Graceful shutdown via POSIX signal handling
 - Static file serving with MIME type detection and path traversal protection
 - SQLite database integration with RAII wrappers, transactions, and connection pooling
-- JWT-based authentication _(planned)_
+- JWT-based authentication with HMAC-SHA256 and PBKDF2 password hashing
 - epoll-based async event loop _(planned)_
 
 ---
@@ -43,12 +43,12 @@ Every layer is implemented manually:
 | Phase 5 | Static file serving, MIME types           | ✅ Done |
 | Phase 6 | Thread pool, mutex, graceful shutdown     | ✅ Done |
 
-### v0.3 — Data & Auth 🔄 In Progress
+### v0.3 — Data & Auth ✅ Complete
 
-| Phase   | Description                                                | Status     |
-| ------- | ---------------------------------------------------------- | ---------- |
-| Phase 7 | SQLite integration, parameterized queries, connection pool | ✅ Done    |
-| Phase 8 | Password hashing, JWT generation and verification          | 🔲 Planned |
+| Phase   | Description                                                | Status  |
+| ------- | ---------------------------------------------------------- | ------- |
+| Phase 7 | SQLite integration, parameterized queries, connection pool | ✅ Done |
+| Phase 8 | Password hashing, JWT generation and verification          | ✅ Done |
 
 ### v0.4 — Scale
 
@@ -69,6 +69,8 @@ Every layer is implemented manually:
 [HTTP Parser]             ← bytes → HttpRequest
     ↓
 [Middleware Pipeline]     ← ordered chain, next() pattern
+    ↓
+[JWT Middleware]          ← verifies Bearer token, 401 if invalid
     ↓
 [Router]                  ← method + path → handler
     ↓
@@ -190,6 +192,36 @@ ConnectionPool pool("app.db", 4);
 
 The pool is safe for concurrent use — `acquire()` and `release()` are both protected by a `mutex`, and threads that find no available connection sleep on a `condition_variable` rather than busy-waiting.
 
+### Auth Layer
+
+Password hashing and JWT-based authentication built from scratch using OpenSSL's low-level C API — no auth libraries.
+
+**`PasswordHasher`** — hashes passwords using PBKDF2-HMAC-SHA256 with a random 16-byte salt and 10,000 iterations. Stores the result as `salt$hash` in hex. `verify()` recovers the salt, re-runs PBKDF2, and compares — the raw password is never stored anywhere.
+
+```cpp
+std::string stored = PasswordHasher::hash("mypassword");
+bool valid   = PasswordHasher::verify("mypassword", stored); // true
+bool invalid = PasswordHasher::verify("wrong", stored);      // false
+```
+
+**`Base64`** — manual Base64url encode/decode. Operates on raw bytes, extracts 6-bit groups via bitwise arithmetic, maps them to the 64-character alphabet. Applies Base64url substitutions (`+` → `-`, `/` → `_`, no `=` padding) so output is safe in HTTP headers and URLs.
+
+**`Hmac`** — computes HMAC-SHA256 via OpenSSL's `HMAC()` and returns the result Base64url-encoded. Used by `JwtService` to sign and verify tokens.
+
+**`JwtService`** — issues and verifies JWTs manually. A token is three Base64url-encoded parts joined by dots: `header.payload.signature`. The signature is `HMAC-SHA256(header.payload, secret)` — impossible to forge without the secret key. Tokens carry a `sub` claim (user id) and an `exp` claim (Unix timestamp), and expire after 1 hour.
+
+```cpp
+std::string token   = JwtService::issue("42", secret);
+std::string user_id = JwtService::verify(token, secret); // "42"
+// throws std::runtime_error if signature is invalid or token is expired
+```
+
+**`JwtMiddleware`** — wraps `JwtService` as a middleware. Reads the `Authorization: Bearer <token>` header, verifies the token, and either calls `next()` or short-circuits with `401 Unauthorized`. Applied per-route by adding it to the pipeline before the router.
+
+```cpp
+server.use(JwtMiddleware::create(secret));
+```
+
 ---
 
 ## Folder Structure
@@ -209,17 +241,27 @@ kernel-web-framework/
 │   ├── router/
 │   │   └── Router.hpp
 │   ├── middleware/
-│   │   └── MiddlewarePipeline.hpp
+│   │   ├── Middleware.hpp
+│   │   ├── MiddlewarePipeline.hpp
+│   │   ├── Logger.hpp
+│   │   ├── RequestTimer.hpp
+│   │   └── JwtMiddleware.hpp
 │   ├── static/
 │   │   └── StaticFileHandler.hpp
 │   ├── threading/
 │   │   └── ThreadPool.hpp
-│   └── database/
-│       ├── Database.hpp
-│       ├── Statement.hpp
-│       ├── Transaction.hpp
-│       ├── ConnectionPool.hpp
-│       └── ConnectionGuard.hpp
+│   ├── database/
+│   │   ├── Database.hpp
+│   │   ├── Statement.hpp
+│   │   ├── Transaction.hpp
+│   │   ├── ConnectionPool.hpp
+│   │   └── ConnectionGuard.hpp
+│   ├── auth/
+│   │   ├── PasswordHasher.hpp
+│   │   └── JwtService.hpp
+│   └── utils/
+│       ├── Base64.hpp
+│       └── Hmac.hpp
 ├── src/
 │   ├── main.cpp
 │   ├── server/
@@ -231,17 +273,26 @@ kernel-web-framework/
 │   ├── router/
 │   │   └── Router.cpp
 │   ├── middleware/
-│   │   └── MiddlewarePipeline.cpp
+│   │   ├── MiddlewarePipeline.cpp
+│   │   ├── Logger.cpp
+│   │   ├── RequestTimer.cpp
+│   │   └── JwtMiddleware.cpp
 │   ├── static/
 │   │   └── StaticFileHandler.cpp
 │   ├── threading/
 │   │   └── ThreadPool.cpp
-│   └── database/
-│       ├── Database.cpp
-│       ├── Statement.cpp
-│       ├── Transaction.cpp
-│       ├── ConnectionPool.cpp
-│       └── ConnectionGuard.cpp
+│   ├── database/
+│   │   ├── Database.cpp
+│   │   ├── Statement.cpp
+│   │   ├── Transaction.cpp
+│   │   ├── ConnectionPool.cpp
+│   │   └── ConnectionGuard.cpp
+│   ├── auth/
+│   │   ├── PasswordHasher.cpp
+│   │   └── JwtService.cpp
+│   └── utils/
+│       ├── Base64.cpp
+│       └── Hmac.cpp
 ```
 
 ---
@@ -254,15 +305,16 @@ kernel-web-framework/
 - GCC 11+ or Clang 14+
 - CMake 3.16+
 - libsqlite3-dev
+- libssl-dev
 
 **Install dependencies**
 
 ```bash
 # Debian / Ubuntu
-sudo apt install -y build-essential cmake libsqlite3-dev
+sudo apt install -y build-essential cmake libsqlite3-dev libssl-dev
 
 # Arch Linux
-sudo pacman -S base-devel cmake sqlite
+sudo pacman -S base-devel cmake sqlite openssl
 ```
 
 > **Not on Linux?** Here are your options:
@@ -300,6 +352,18 @@ cd ~/projects/kernel-web-framework
 curl http://localhost:8080/index.html
 ```
 
+**Test auth**
+
+```bash
+# get a token
+TOKEN=$(curl -s -X POST http://localhost:8080/login \
+  -d '{"username":"ahmed","password":"mypassword"}' | jq -r .token)
+
+# use it on a protected route
+curl http://localhost:8080/protected \
+  -H "Authorization: Bearer $TOKEN"
+```
+
 **Test concurrent requests**
 
 ```bash
@@ -320,16 +384,16 @@ wait
 
 ## Version History
 
-| Version | Status         | Description                                                 |
-| ------- | -------------- | ----------------------------------------------------------- |
-| v0.1    | ✅ Complete    | TCP server + HTTP parser + router                           |
-| v0.2    | ✅ Complete    | Middleware + thread pool + graceful shutdown + static files |
-| v0.3    | 🔄 In progress | Database layer + connection pool                            |
-| v0.4    | 🔲 Planned     | epoll event loop + performance                              |
-| v0.5    | 🔲 Future      | TLS + HTTP/2                                                |
+| Version | Status      | Description                                                    |
+| ------- | ----------- | -------------------------------------------------------------- |
+| v0.1    | ✅ Complete | TCP server + HTTP parser + router                              |
+| v0.2    | ✅ Complete | Middleware + thread pool + graceful shutdown + static files    |
+| v0.3    | ✅ Complete | Database layer + connection pool + password hashing + JWT auth |
+| v0.4    | 🔲 Planned  | epoll event loop + performance                                 |
+| v0.5    | 🔲 Future   | TLS + HTTP/2                                                   |
 
 ---
 
 ## Author
 
-**Ahmed Gaber** — Backend Developer (Python | Django | C++)
+**Ahmed Gaber** — Backend Developer (Python | Django | C++)\*Ahmed Gaber\*\* — Backend Developer (Python | Django | C++)

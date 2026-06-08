@@ -10,7 +10,9 @@
 #include "../include/middleware/RequestTimer.hpp"
 #include "../include/static/StaticFileHandler.hpp"
 #include "../include/database/ConnectionPool.hpp"
-
+#include "../include/middleware/JwtMiddleware.hpp"
+#include "../include/auth/PasswordHasher.hpp"
+#include "../include/auth/JwtService.hpp"
 
 HttpResponse homeHandler() {
     HttpResponse response;
@@ -35,10 +37,10 @@ int main() {
                 "CREATE TABLE IF NOT EXISTS users "
                 "(id INTEGER PRIMARY KEY, name TEXT);"
             );
-            db.execute(
-                "INSERT INTO users (name) VALUES ('Ahmed');"
-            );
-
+            // db.execute(
+            //     "INSERT INTO users (name) VALUES ('Ahmed');"
+            // );
+            //
             auto stmt = db.prepare("SELECT * FROM users;");
             auto rows = stmt.fetchAll();
 
@@ -54,9 +56,23 @@ int main() {
 
         TcpServer server(8080, router);
         StaticFileHandler staticFiles("public");
+        
+
+        std::string secret_key = "be_pround_of_your_self";
+        std::string stored = PasswordHasher::hash("mypassword");
+        std::cout << "Stored: " << stored << "\n";
+        std::cout << "Valid: " << PasswordHasher::verify("mypassword", stored) << "\n";
+        std::cout << "Invalid: " << PasswordHasher::verify("wrongpassword", stored) << "\n";
+
+        // test JwtService
+        std::string token = JwtService::issue("42", secret_key);
+        std::cout << "Token: " << token << "\n";
+        std::cout << "User id: " << JwtService::verify(token, secret_key) << "\n";
+        
 
         server.use(Logger::handle);
         server.use(RequestTimer::handle);
+        server.use(JwtMiddleware::create(secret_key));
         server.use([&staticFiles](
             HttpRequest& req,
             HttpResponse& res,

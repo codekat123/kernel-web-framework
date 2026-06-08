@@ -11,4 +11,6 @@ add_executable(server ${SOURCES})
 target_link_libraries(
     server
     sqlite3
+    ssl
+    crypto
 )
