@@ -14,5 +14,7 @@ public:
         std::string
     > headers;
 
+    std::string body;
+
     void print() const;
 };

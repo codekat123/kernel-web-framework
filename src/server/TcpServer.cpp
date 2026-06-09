@@ -68,16 +68,14 @@ void TcpServer::setupSocket() {
         throw std::runtime_error("Listen failed");
     }
 }
-
 void TcpServer::finalizeRoutes() {
- 
     pipeline.use([this](
         HttpRequest& req,
         HttpResponse& res,
         std::function<void()> next
     ) {
-        res = this->router.route(req.path);
-    });   
+        res = this->router.route(req.path, req);
+    });
 }
 
 void TcpServer::handleClient(int client_socket) {
