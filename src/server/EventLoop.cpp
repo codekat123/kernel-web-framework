@@ -1,9 +1,10 @@
 #include <iostream>
 #include <csignal>
 #include <unistd.h>
+#include <fcntl.h>
+#include <cerrno>
 #include <netinet/in.h>
 #include <sys/socket.h>
-#include <sys/select.h>
 
 #include "../../include/server/TcpServer.hpp"
 #include "../../include/http/HttpRequest.hpp"
@@ -29,41 +30,54 @@ void TcpServer::finalizeRoutes() {
 
 void TcpServer::start() {
     global_server_instance = this;
-    std::signal(SIGINT, handleSignal);
+    std::signal(SIGINT,  handleSignal);
     std::signal(SIGTERM, handleSignal);
 
     finalizeRoutes();
     setupSocket();
 
+    int flags = fcntl(server_fd, F_GETFL, 0);
+    fcntl(server_fd, F_SETFL, flags | O_NONBLOCK);
+
+    loop_.addFd(server_fd, [this](int fd) {
+        acceptClients();
+    });
+
     std::cout << "Server listening on port " << port << "...\n";
 
-    while (running) {
-        fd_set read_fds;
-        FD_ZERO(&read_fds);
-        FD_SET(server_fd, &read_fds);
-
-        timeval timeout{};
-        timeout.tv_sec = 1;
-        timeout.tv_usec = 0;
-
-        int ready = select(server_fd + 1, &read_fds, nullptr, nullptr, &timeout);
-
-        if (ready < 0) break;
-        if (ready == 0) continue;
-
-        sockaddr_in client_address{};
-        socklen_t client_len = sizeof(client_address);
-        int client_socket = accept(server_fd, (sockaddr*)&client_address, &client_len);
-
-        if (client_socket < 0) {
-            if (running) std::cerr << "Accept failed\n";
-            continue;
-        }
-
-        thread_pool.enqueue([this, client_socket]() {
-            handleClient(client_socket);
-        });
-    }
+    loop_.run();
 
     std::cout << "Server shutting down...\n";
+}
+
+void TcpServer::stop() {
+    running = false;
+    loop_.stop();
+    close(server_fd);
+}
+
+void TcpServer::acceptClients() {
+    while (true) {
+        sockaddr_in client_addr{};
+        socklen_t   client_len = sizeof(client_addr);
+
+        int client_fd = accept(server_fd, (sockaddr*)&client_addr, &client_len);
+
+        if (client_fd < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) break;
+            std::cerr << "accept error\n";
+            break;
+        }
+
+        int flags = fcntl(client_fd, F_GETFL, 0);
+        fcntl(client_fd, F_SETFL, flags | O_NONBLOCK);
+
+        loop_.addFd(client_fd, [this](int fd) {
+            loop_.removeFd(fd);
+
+            thread_pool.enqueue([this, fd]() {
+                handleClient(fd);
+            });
+        });
+    }
 }

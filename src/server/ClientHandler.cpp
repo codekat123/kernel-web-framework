@@ -1,4 +1,5 @@
 #include <iostream>
+#include <cerrno>
 #include <unistd.h>
 #include <sys/socket.h>
 
@@ -17,13 +18,20 @@ void TcpServer::handleClient(int client_socket) {
         0
     );
 
-    HttpRequest request;
-
-    if (bytes_received > 0) {
-        std::cout << "==== Incoming Request ====\n";
-        std::cout << buffer << "\n";
-        request = HttpParser::parse(buffer);
+    if (bytes_received < 0) {
+        if (errno != EAGAIN && errno != EWOULDBLOCK) {
+            std::cerr << "recv error\n";
+        }
+        close(client_socket);
+        return;
     }
+
+    if (bytes_received == 0) {
+        close(client_socket);
+        return;
+    }
+
+    HttpRequest request = HttpParser::parse(buffer);
 
     HttpResponse response;
     pipeline.execute(request, response);

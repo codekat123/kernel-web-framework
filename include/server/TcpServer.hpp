@@ -5,6 +5,8 @@
 #include "../router/Router.hpp"
 #include "../middleware/MiddlewarePipeline.hpp" 
 #include "../threading/ThreadPool.hpp"
+#include "EventLoop.hpp"
+
 
 class TcpServer {
 private:
@@ -14,9 +16,11 @@ private:
     MiddlewarePipeline pipeline;
     ThreadPool thread_pool;
     std::atomic<bool> running;
+    EventLoop loop_;
 
     void setupSocket();
     void finalizeRoutes();
+    void acceptClients();
     void handleClient(int client_socket);
 
 public:

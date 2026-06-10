@@ -23,10 +23,6 @@ void TcpServer::use(Middleware mw) {
     pipeline.use(mw);
 }
 
-void TcpServer::stop() {
-    running = false;
-    close(server_fd);
-}
 
 void TcpServer::setupSocket() {
     server_fd = socket(AF_INET, SOCK_STREAM, 0);
