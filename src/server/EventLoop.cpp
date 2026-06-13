@@ -43,6 +43,8 @@ void TcpServer::start() {
         acceptClients();
     });
 
+    loop_.setServerFd(server_fd);
+
     std::cout << "Server listening on port " << port << "...\n";
 
     loop_.run();
@@ -54,6 +56,7 @@ void TcpServer::stop() {
     running = false;
     loop_.stop();
     close(server_fd);
+    server_fd = -1;
 }
 
 void TcpServer::acceptClients() {
@@ -68,9 +71,6 @@ void TcpServer::acceptClients() {
             std::cerr << "accept error\n";
             break;
         }
-
-        int flags = fcntl(client_fd, F_GETFL, 0);
-        fcntl(client_fd, F_SETFL, flags | O_NONBLOCK);
 
         loop_.addFd(client_fd, [this](int fd) {
             loop_.removeFd(fd);
