@@ -20,7 +20,8 @@ Every layer is implemented manually:
 - Static file serving with MIME type detection and path traversal protection
 - SQLite database integration with RAII wrappers, transactions, and connection pooling
 - JWT-based authentication with HMAC-SHA256 and PBKDF2 password hashing
-- epoll-based async event loop _(planned)_
+- epoll-based async event loop with non-blocking sockets
+- HTTP keep-alive with idle connection timeout sweep
 
 ---
 
@@ -50,21 +51,22 @@ Every layer is implemented manually:
 | Phase 7 | SQLite integration, parameterized queries, connection pool | ✅ Done |
 | Phase 8 | Password hashing, JWT generation and verification          | ✅ Done |
 
-### v0.4 — Scale
+### v0.4 — Scale ✅ Complete
 
-| Phase    | Description                                        | Status     |
-| -------- | -------------------------------------------------- | ---------- |
-| Phase 9  | epoll-based async event loop, non-blocking sockets | 🔲 Planned |
-| Phase 10 | HTTP keep-alive, rate limiting, benchmarking       | 🔲 Planned |
+| Phase    | Description                                        | Status  |
+| -------- | -------------------------------------------------- | ------- |
+| Phase 9  | epoll-based async event loop, non-blocking sockets | ✅ Done |
+| Phase 10 | HTTP keep-alive with idle timeout sweep            | ✅ Done |
 
 ---
 
 ## Architecture
 
-```
-[Client]
+```[Client]
     ↓
 [TCP Socket Layer]        ← POSIX socket fd
+    ↓
+[epoll Event Loop]        ← non-blocking I/O, idle timeout sweep
     ↓
 [HTTP Parser]             ← bytes → HttpRequest
     ↓
@@ -80,20 +82,20 @@ Every layer is implemented manually:
     ↓
 [Serializer]              ← response → bytes
     ↓
-[TCP Send]                ← back to client
+[TCP Send]                ← back to client (connection reused if keep-alive)
 ```
 
 ---
 
-## What's Built So Far
+## What's Built
 
 ### TCP Server
 
-Raw POSIX socket server that accepts connections, reads incoming bytes, and sends responses back. Uses `select()` with a 1-second timeout on the accept loop so the server can respond to shutdown signals without blocking forever.
+Raw POSIX socket server that accepts connections, reads incoming bytes, and sends responses back. The server socket is set to non-blocking mode and registered with epoll — new connections are accepted in a tight loop until `EAGAIN` signals no more are pending.
 
 ### HTTP Parser
 
-Parses raw HTTP/1.1 request bytes into a structured `HttpRequest` object with method, path, version, and headers.
+Parses raw HTTP/1.1 request bytes into a structured `HttpRequest` object with method, path, version, headers, and body. Body is read based on the `Content-Length` header.
 
 ### Router
 
@@ -129,24 +131,48 @@ thread_pool.enqueue([this, client_socket]() {
 
 ### Graceful Shutdown
 
-POSIX signal handling (`SIGINT`, `SIGTERM`) sets an `atomic<bool>` flag and closes the server socket. The accept loop checks the flag on every iteration via `select()` timeout, exits cleanly, and waits for in-flight requests to finish before the process terminates.
+POSIX signal handling (`SIGINT`, `SIGTERM`) stops the epoll event loop and closes the server socket. The thread pool destructor drains all remaining tasks and joins worker threads before the process exits.
 
 ```
 Ctrl+C
-  → running = false, server_fd closed
-  → select() returns, loop exits
+  → loop_.stop(), server_fd closed
+  → epoll loop exits
   → ThreadPool destructor drains queue
   → worker threads joined
   → process exits cleanly
 ```
 
-### Static File Serving
+### epoll Event Loop
 
-Serves files from the `public/` directory. Automatically detects the correct `Content-Type` header based on file extension. Includes path traversal protection — requests containing `..` that escape the document root are rejected with `403 Forbidden`.
+Non-blocking I/O using Linux's `epoll`. The server fd and all client fds are registered with `epoll_ctl`. `epoll_wait` wakes up with a 1-second timeout to run the idle sweep even when no events are pending. Each readable fd dispatches to its registered handler.
 
 ```
-GET /index.html  →  serves public/index.html with Content-Type: text/html
-GET /style.css   →  serves public/style.css  with Content-Type: text/css
+epoll_wait (1s timeout)
+  → server fd readable → acceptClients()
+  → client fd readable → removeFd, enqueue handleClient
+  → timeout          → sweepIdleConnections()
+```
+
+Tracks which fds are already registered via an `unordered_set` to correctly use `EPOLL_CTL_MOD` vs `EPOLL_CTL_ADD` on re-registration.
+
+### HTTP Keep-Alive
+
+HTTP/1.1 connections are kept alive by default. After sending a response, the client fd is re-registered with epoll to wait for the next request on the same connection. Connections are only closed if the client explicitly sends `Connection: close`.
+
+An idle timeout sweep runs every epoll cycle. Each fd's last-activity timestamp is tracked in an `unordered_map`. Any client fd idle for more than 30 seconds is closed automatically. The server fd is excluded from the sweep.
+
+```
+Connection: keep-alive  →  fd re-registered with epoll, reused for next request
+Connection: close       →  fd closed after response
+idle > 30s              →  fd closed by sweep
+```
+
+### Static File Serving
+
+Serves files from the `public/` directory. Automatically detects the correct `Content-Type` header based on file extension. Includes path traversal protection — requests that escape the document root are rejected with `403 Forbidden`.
+
+```
+GET /index.html              →  serves public/index.html with Content-Type: text/html
 GET /../../../../etc/passwd  →  403 Forbidden
 ```
 
@@ -233,13 +259,16 @@ kernel-web-framework/
 ├── public/                        ← static files served here
 ├── include/
 │   ├── server/
-│   │   └── TcpServer.hpp
+│   │   ├── TcpServer.hpp
+│   │   └── EventLoop.hpp
 │   ├── http/
 │   │   ├── HttpRequest.hpp
 │   │   ├── HttpResponse.hpp
 │   │   └── HttpParser.hpp
 │   ├── router/
-│   │   └── Router.hpp
+│   │   ├── Router.hpp
+│   │   ├── HomeRoutes.hpp
+│   │   └── AuthRoutes.hpp
 │   ├── middleware/
 │   │   ├── Middleware.hpp
 │   │   ├── MiddlewarePipeline.hpp
@@ -261,17 +290,23 @@ kernel-web-framework/
 │   │   └── JwtService.hpp
 │   └── utils/
 │       ├── Base64.hpp
-│       └── Hmac.hpp
+│       ├── Hmac.hpp
+│       └── JsonParser.hpp
 ├── src/
 │   ├── main.cpp
 │   ├── server/
-│   │   └── TcpServer.cpp
+│   │   ├── TcpServer.cpp
+│   │   ├── EventLoop.cpp
+│   │   ├── EpollEventLoop.cpp
+│   │   └── ClientHandler.cpp
 │   ├── http/
 │   │   ├── HttpRequest.cpp
 │   │   ├── HttpResponse.cpp
 │   │   └── HttpParser.cpp
 │   ├── router/
-│   │   └── Router.cpp
+│   │   ├── Router.cpp
+│   │   ├── HomeRoutes.cpp
+│   │   └── AuthRoutes.cpp
 │   ├── middleware/
 │   │   ├── MiddlewarePipeline.cpp
 │   │   ├── Logger.cpp
@@ -292,7 +327,8 @@ kernel-web-framework/
 │   │   └── JwtService.cpp
 │   └── utils/
 │       ├── Base64.cpp
-│       └── Hmac.cpp
+│       ├── Hmac.cpp
+│       └── JsonParser.cpp
 ```
 
 ---
@@ -355,13 +391,29 @@ curl http://localhost:8080/index.html
 **Test auth**
 
 ```bash
+# register a user
+curl -X POST http://localhost:8080/register \
+  -H "Content-Type: application/json" \
+  -d '{"username":"ahmed","password":"mypassword"}'
+
 # get a token
 TOKEN=$(curl -s -X POST http://localhost:8080/login \
+  -H "Content-Type: application/json" \
   -d '{"username":"ahmed","password":"mypassword"}' | jq -r .token)
 
 # use it on a protected route
 curl http://localhost:8080/protected \
   -H "Authorization: Bearer $TOKEN"
+```
+
+**Test keep-alive**
+
+```bash
+# two requests reusing the same connection
+curl -v --keepalive-time 10 \
+  http://localhost:8080/ \
+  http://localhost:8080/hello
+# look for: "Reusing existing connection" in curl output
 ```
 
 **Test concurrent requests**
@@ -389,11 +441,11 @@ wait
 | v0.1    | ✅ Complete | TCP server + HTTP parser + router                              |
 | v0.2    | ✅ Complete | Middleware + thread pool + graceful shutdown + static files    |
 | v0.3    | ✅ Complete | Database layer + connection pool + password hashing + JWT auth |
-| v0.4    | 🔲 Planned  | epoll event loop + performance                                 |
+| v0.4    | ✅ Complete | epoll event loop + HTTP keep-alive + idle timeout sweep        |
 | v0.5    | 🔲 Future   | TLS + HTTP/2                                                   |
 
 ---
 
 ## Author
 
-**Ahmed Gaber** — Backend Developer (Python | Django | C++)\*Ahmed Gaber\*\* — Backend Developer (Python | Django | C++)
+**Ahmed Gaber** — Backend Developer (Python | Django | C++)
